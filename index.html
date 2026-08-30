@@ -35,6 +35,15 @@
     font-size:1rem;text-transform:uppercase;letter-spacing:.04em;
     color:var(--brand);margin:0 0 14px;
   }
+  .section-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;}
+  .section-header h2{margin:0;}
+  button.danger{
+    background:#fff;color:#b42318;border:1.5px solid #b42318;
+    padding:6px 14px;font-size:0.8rem;
+  }
+  button.danger:hover{background:#fdeceb;}
+  .field-error{font-size:0.72rem;color:#b42318;margin-top:3px;min-height:14px;display:none;}
+  .field-error.show{display:block;}
   .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px 20px;}
   @media (max-width:640px){.grid{grid-template-columns:1fr;}}
   label{display:block;font-size:0.82rem;font-weight:600;margin-bottom:4px;color:#374151;}
@@ -81,18 +90,31 @@
 <div class="wrap">
 
   <header>
-    <h1>VIHveLibre · Resultados de detección con pruebas rápidas</h1>
-    <p>Llena el formulario y genera el PDF listo para imprimir. No necesitas tener el archivo original — todo se genera aquí mismo, en tu navegador.</p>
+    <h1>VIHve Libre - Formato de Resultados</h1>
+    <p>Este es un generador automático de resultados - Por favor, llena las opciones que se solicitan.</p>
   </header>
 
   <section>
-    <h2>Datos generales</h2>
+    <div class="section-header">
+      <h2>Datos generales</h2>
+      <button type="button" id="wipe-btn" class="secondary danger">Limpiar Campos</button>
+    </div>
     <div class="grid">
-      <div class="field"><label for="nombre">Nombre</label><input type="text" id="nombre"></div>
-      <div class="field"><label for="fecha">Fecha</label><input type="text" id="fecha" placeholder="DD-MM-AAAA"></div>
+      <div class="field">
+        <label for="nombre">Nombre</label><input type="text" id="nombre">
+      </div>
+      <div class="field">
+        <label for="fecha">Fecha</label>
+        <input type="text" id="fecha" placeholder="DD-MM-AAAA" inputmode="numeric">
+        <div class="field-error" id="err_fecha"></div>
+      </div>
 
       <div class="field"><label for="nombre_social">Nombre Social</label><input type="text" id="nombre_social"></div>
-      <div class="field"><label for="sip_id">SIP ID</label><input type="text" id="sip_id"></div>
+      <div class="field">
+        <label for="sip_id">SIP ID</label>
+        <input type="text" id="sip_id" inputmode="numeric">
+        <div class="field-error" id="err_sip_id"></div>
+      </div>
 
       <div class="field"><label for="edad">Edad</label><input type="text" id="edad"></div>
       <div class="field">
@@ -208,11 +230,7 @@ function buildRows() {
   body.innerHTML = html;
 
   for (let i = 1; i <= N_ROWS; i++) {
-    document.getElementById(`tipo_${i}`).addEventListener('change', () => {
-      updateLabOptions(i);
-      // Progressive reveal: filling the last visible row's Tipo deploys the next one.
-      if (i === visibleRows && visibleRows < N_ROWS) revealNextRow();
-    });
+    document.getElementById(`tipo_${i}`).addEventListener('change', () => updateLabOptions(i));
   }
   applyRowVisibility();
 }
@@ -271,6 +289,62 @@ document.getElementById('consejerx').addEventListener('change', (e) => {
 
 document.getElementById('add-row-btn').addEventListener('click', revealNextRow);
 document.getElementById('remove-row-btn').addEventListener('click', removeLastRow);
+
+// ---- Numeric-only guards for SIP ID and Fecha ----
+// Fecha keeps its DD-MM-AAAA separators; SIP ID is digits only.
+function attachNumericGuard(inputId, errorId, allowExtraChars) {
+  const input = document.getElementById(inputId);
+  const errEl = document.getElementById(errorId);
+  const pattern = new RegExp(`[^0-9${allowExtraChars || ''}]`, 'g');
+  let hideTimer;
+  input.addEventListener('input', () => {
+    const original = input.value;
+    const cleaned = original.replace(pattern, '');
+    if (cleaned !== original) {
+      input.value = cleaned;
+      errEl.textContent = 'Solo se permiten números.';
+      errEl.classList.add('show');
+      clearTimeout(hideTimer);
+      hideTimer = setTimeout(() => errEl.classList.remove('show'), 2500);
+    } else {
+      errEl.classList.remove('show');
+    }
+  });
+}
+attachNumericGuard('sip_id', 'err_sip_id');
+attachNumericGuard('fecha', 'err_fecha', '\\-');
+
+// ---- Wipe button: clears everything for a fresh registry ----
+function wipeForm() {
+  document.getElementById('nombre').value = '';
+  document.getElementById('nombre_social').value = '';
+  document.getElementById('sip_id').value = '';
+  document.getElementById('edad').value = '';
+  document.getElementById('sede').value = '';
+  document.getElementById('identidad').value = '';
+  document.getElementById('consejerx').value = '';
+  document.getElementById('consejerx_personalizado').value = '';
+  document.getElementById('consejerx_custom_wrap').style.display = 'none';
+  document.getElementById('correo_destino').value = '';
+  document.getElementById('fecha').value = todayStr();
+  document.getElementById('err_sip_id').classList.remove('show');
+  document.getElementById('err_fecha').classList.remove('show');
+
+  for (let i = 1; i <= N_ROWS; i++) {
+    document.getElementById(`tipo_${i}`).value = '';
+    updateLabOptions(i);
+    document.getElementById(`resultado_${i}`).value = '';
+    document.getElementById(`lote_${i}`).value = '';
+    document.getElementById(`notas_${i}`).value = '';
+  }
+  visibleRows = 1;
+  applyRowVisibility();
+
+  const status = document.getElementById('status');
+  status.textContent = 'Formulario limpio — listo para un nuevo registro.';
+  status.className = 'status';
+}
+document.getElementById('wipe-btn').addEventListener('click', wipeForm);
 
 buildRows();
 document.getElementById('fecha').value = todayStr();
