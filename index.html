@@ -80,13 +80,33 @@
   .row-controls{display:flex;gap:10px;margin-top:10px;}
   .email-row{display:flex;gap:10px;margin-top:12px;flex-wrap:wrap;}
   .email-row input{flex:1;min-width:220px;}
-  .status{font-size:0.85rem;color:var(--muted);margin-top:10px;}
-  .status.ok{color:#1a7f37;}
-  .status.err{color:#b42318;}
+  .toast{
+    position:fixed; top:24px; left:50%; transform:translateX(-50%) translateY(-12px);
+    background:#1f2430; color:#fff; padding:12px 22px; border-radius:10px;
+    font-size:0.88rem; display:flex; align-items:center; gap:10px;
+    box-shadow:0 10px 30px rgba(0,0,0,0.22);
+    opacity:0; pointer-events:none; transition:opacity 0.3s ease, transform 0.3s ease;
+    z-index:9999; max-width:88vw; text-align:left;
+  }
+  .toast.show{opacity:1; transform:translateX(-50%) translateY(0); pointer-events:auto;}
+  .toast.ok{background:#1a7f37;}
+  .toast.err{background:#b42318;}
+  .toast-spinner{
+    width:14px; height:14px; border-radius:50%; flex:0 0 auto;
+    border:2px solid rgba(255,255,255,0.35); border-top-color:#fff;
+    display:none; animation:toast-spin 0.8s linear infinite;
+  }
+  .toast-spinner.show{display:inline-block;}
+  @keyframes toast-spin{ to { transform: rotate(360deg); } }
   footer{text-align:center;color:var(--muted);font-size:0.78rem;margin-top:20px;}
 </style>
 </head>
 <body>
+<div class="toast" id="toast">
+  <span class="toast-spinner" id="toast-spinner"></span>
+  <span id="toast-text"></span>
+</div>
+
 <div class="wrap">
 
   <header>
@@ -161,7 +181,7 @@
     <div class="legend-note">El laboratorio disponible se ajusta automáticamente según el tipo de prueba elegido.</div>
     <table class="rows">
       <thead>
-        <tr><th style="width:22%">Tipo</th><th style="width:16%">Resultado</th><th style="width:14%">Lab.</th><th style="width:12%">Lote</th><th>Notas</th></tr>
+        <tr><th style="width:26%">Tipo</th><th style="width:20%">Resultado</th><th style="width:18%">Lab.</th><th>Notas</th></tr>
       </thead>
       <tbody id="rows-body"></tbody>
     </table>
@@ -185,7 +205,6 @@
       los navegadores no permiten adjuntar archivos automáticamente por seguridad, así que solo arrastra
       el PDF que se acaba de descargar al correo antes de enviarlo.
     </div>
-    <div class="status" id="status"></div>
   </section>
 
   <footer>VIHveLibre · vihvelibre.org · Este formulario genera el PDF localmente en tu navegador; nada se envía a un servidor.</footer>
@@ -207,6 +226,21 @@ const CASCADE = {
 };
 const N_ROWS = 5;
 
+// Lote is no longer typed by hand — it's fixed per Tipo+Lab combination and
+// only appears in the generated PDF, not in the editor.
+const LOTE_MAP = {
+  "Prueba VIH 4ta Gen|Abbott": "0001148728",
+  "Prueba VIH Anticuerpos|InTec": "GJ25081073",
+  "Prueba VIH Anticuerpos|Abbott": "N/A",
+  "Prueba Sífilis ELISA|Abbott": "N/A",
+  "Prueba Sífilis ELISA|InTec": "GJ26050583",
+  "Prueba Hepatitis C ELISA|Abbott": "02BDK031A",
+};
+function getLote(tipo, lab) {
+  if (!tipo || !lab) return '';
+  return LOTE_MAP[`${tipo}|${lab}`] || '';
+}
+
 function optionsHtml(list, withPlaceholder) {
   let html = withPlaceholder ? '<option value="">Selecciona...</option>' : '';
   for (const o of list) html += `<option>${o}</option>`;
@@ -223,7 +257,6 @@ function buildRows() {
       <td><select id="tipo_${i}" data-row="${i}" class="tipo-select">${optionsHtml(TIPO_OPTIONS, true)}</select></td>
       <td><select id="resultado_${i}">${optionsHtml(RESULTADO_OPTIONS, true)}</select></td>
       <td><select id="lab_${i}"><option value="">Selecciona...</option></select></td>
-      <td><input type="text" id="lote_${i}"></td>
       <td><input type="text" id="notas_${i}"></td>
     </tr>`;
   }
@@ -256,7 +289,6 @@ function removeLastRow() {
     document.getElementById(`tipo_${i}`).value = '';
     updateLabOptions(i);
     document.getElementById(`resultado_${i}`).value = '';
-    document.getElementById(`lote_${i}`).value = '';
     document.getElementById(`notas_${i}`).value = '';
     visibleRows--;
     applyRowVisibility();
@@ -280,6 +312,27 @@ function pad2(n) { return String(n).padStart(2, '0'); }
 function todayStr() {
   const d = new Date();
   return `${pad2(d.getDate())}-${pad2(d.getMonth() + 1)}-${d.getFullYear()}`;
+}
+
+// ---- Toast notification (pop-up, auto-fades, optional spinner) ----
+let toastHideTimer = null;
+function showToast(message, opts = {}) {
+  const { loading = false, type = 'info', duration = 3000 } = opts;
+  const toast = document.getElementById('toast');
+  const spinner = document.getElementById('toast-spinner');
+  const text = document.getElementById('toast-text');
+
+  text.textContent = message;
+  spinner.classList.toggle('show', loading);
+  toast.classList.remove('ok', 'err');
+  if (type === 'ok') toast.classList.add('ok');
+  if (type === 'err') toast.classList.add('err');
+  toast.classList.add('show');
+
+  clearTimeout(toastHideTimer);
+  if (!loading) {
+    toastHideTimer = setTimeout(() => toast.classList.remove('show'), duration);
+  }
 }
 
 document.getElementById('consejerx').addEventListener('change', (e) => {
@@ -334,15 +387,12 @@ function wipeForm() {
     document.getElementById(`tipo_${i}`).value = '';
     updateLabOptions(i);
     document.getElementById(`resultado_${i}`).value = '';
-    document.getElementById(`lote_${i}`).value = '';
     document.getElementById(`notas_${i}`).value = '';
   }
   visibleRows = 1;
   applyRowVisibility();
 
-  const status = document.getElementById('status');
-  status.textContent = 'Formulario limpio — listo para un nuevo registro.';
-  status.className = 'status';
+  showToast('Formulario limpio — listo para un nuevo registro.', { type: 'ok' });
 }
 document.getElementById('wipe-btn').addEventListener('click', wipeForm);
 
@@ -423,7 +473,7 @@ async function buildPdfBytes() {
     let [x0, x1] = COL_X.tipo; drawField(val(`tipo_${i}`), x0, rowTop, x1, rowBottom, 7.5);
     [x0, x1] = COL_X.resultado; drawField(val(`resultado_${i}`), x0, rowTop, x1, rowBottom, 7.5);
     [x0, x1] = COL_X.lab; drawField(val(`lab_${i}`), x0, rowTop, x1, rowBottom, 7.5);
-    [x0, x1] = COL_X.lote; drawField(val(`lote_${i}`), x0, rowTop, x1, rowBottom, 7.5);
+    [x0, x1] = COL_X.lote; drawField(getLote(val(`tipo_${i}`), val(`lab_${i}`)), x0, rowTop, x1, rowBottom, 7.5);
     [x0, x1] = COL_X.notas; drawField(val(`notas_${i}`), x0, rowTop, x1, rowBottom, 7.5);
   }
 
@@ -447,19 +497,15 @@ function downloadBytes(pdfBytes, filename) {
 
 async function handleGenerateClick() {
   const btn = document.getElementById('generate-btn');
-  const status = document.getElementById('status');
   btn.disabled = true;
-  status.textContent = 'Generando...';
-  status.className = 'status';
+  showToast('Generando...', { loading: true });
   try {
     const { pdfBytes, filename } = await buildPdfBytes();
     downloadBytes(pdfBytes, filename);
-    status.textContent = 'Listo — el PDF se descargó.';
-    status.className = 'status ok';
+    showToast('Listo — el PDF se descargó.', { type: 'ok' });
   } catch (err) {
     console.error(err);
-    status.textContent = 'Ocurrió un error al generar el PDF: ' + err.message;
-    status.className = 'status err';
+    showToast('Ocurrió un error al generar el PDF: ' + err.message, { type: 'err' });
   } finally {
     btn.disabled = false;
   }
@@ -474,19 +520,16 @@ async function handleGenerateClick() {
 
 async function handleEmailClick() {
   const btn = document.getElementById('email-btn');
-  const status = document.getElementById('status');
   const to = val('correo_destino');
 
   if (!to || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) {
-    status.textContent = 'Escribe un correo válido antes de enviar.';
-    status.className = 'status err';
+    showToast('Escribe un correo válido antes de enviar.', { type: 'err' });
     document.getElementById('correo_destino').focus();
     return;
   }
 
   btn.disabled = true;
-  status.textContent = 'Generando PDF...';
-  status.className = 'status';
+  showToast('Generando PDF...', { loading: true });
   try {
     const { pdfBytes, filename } = await buildPdfBytes();
     downloadBytes(pdfBytes, filename);
@@ -501,12 +544,10 @@ async function handleEmailClick() {
     );
     window.location.href = `mailto:${encodeURIComponent(to)}?subject=${subject}&body=${body}`;
 
-    status.textContent = 'PDF descargado y tu programa de correo se abrió — arrastra el archivo y envíalo.';
-    status.className = 'status ok';
+    showToast('PDF descargado y tu programa de correo se abrió — arrastra el archivo y envíalo.', { type: 'ok' });
   } catch (err) {
     console.error(err);
-    status.textContent = 'Ocurrió un error al preparar el correo: ' + err.message;
-    status.className = 'status err';
+    showToast('Ocurrió un error al preparar el correo: ' + err.message, { type: 'err' });
   } finally {
     btn.disabled = false;
   }
